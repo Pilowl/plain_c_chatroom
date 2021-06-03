@@ -14,4 +14,5 @@
 #include <unistd.h>
 #endif
 
-#define MSG_LENGTH  280
+#define MSG_LENGTH      280
+#define MSG_META_OFFSET 37

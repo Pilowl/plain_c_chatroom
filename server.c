@@ -1,9 +1,11 @@
 #include <time.h>
+#include <signal.h>
 
 #include "common.h"
 #include "utils.h"
 
-#define MAX_CLIENTS 1
+#define SHUTDOWN_TIME 5
+#define MAX_CLIENTS   64
 
 // Commands
 typedef const uint8_t command_t;
@@ -24,12 +26,13 @@ char *SERVER_MSG_NAME_ERROR   = "Wrong name. Your name should have length from 4
 
 const char *USER_CONNECTED_MESSAGE_FMT    = "User %s has joined.";
 const char *USER_DISCONNECTED_MESSAGE_FMT = "User %s has been disconnected.";
-const char *USER_MESSAGE_PREFIX_FMT       = "[%s]";
+const char *SERVER_SHUTDOWN_MESSAGE_FMT   = "Server is (almost) gracefully shutting down in %d";
 
 typedef struct
 {
     uint id;
     char name[32];
+    char *buff;
     struct sockaddr_in addr;
     int sockfd;
     pthread_t tid;
@@ -41,8 +44,6 @@ void prepare_server(struct sockaddr_in* server_addr, int port) {
     (*server_addr).sin_port = htons(port);
 }
 
-const uint MSG_META_OFFSET = 37;
-
 const char TIME_FMT[] =     "%H:%M:%S";
 const char DATETIME_FMT[] = "%d-%m-%Y %H:%M:%S";
 
@@ -53,14 +54,8 @@ pthread_mutex_t client_lock   = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t log_std_lock  = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t log_file_lock = PTHREAD_MUTEX_INITIALIZER;
 
-void copy_range(const char *src, char *dst, size_t start, size_t count)
-{
-    int j = 0;
-    for (int i = start; i < start + count; i++)
-    {
-        dst[j++] = src[i];
-    }
-}
+int sockfd;
+static volatile int server_is_shutting_down = 0;
 
 void log_std(const char *msg)
 {  
@@ -179,6 +174,19 @@ void broadcast(command_t cmd, char *args)
             pthread_mutex_unlock(&client_lock);
 
             break;
+        case CMD_SERVER_MESSAGE:
+            pthread_mutex_lock(&client_lock);
+            log_std(args);
+            for (int i = 0; i < MAX_CLIENTS; i++)
+            {
+                if (clients[i] != NULL)
+                {
+                    send_to_cli(CMD_SERVER_MESSAGE, clients[i], args, strlen(args));
+                }
+            }
+            pthread_mutex_unlock(&client_lock);
+
+            break;
         default:
             break;
     }
@@ -213,40 +221,39 @@ void remove_client(uint id)
 
 void *handle(void *arg)
 {
-    char *buff = malloc(sizeof(char)*MSG_LENGTH);
-    char msg[512] = {};
     client *cli = (client*) arg;
 
     pthread_mutex_lock(&client_lock);
     int room_full = client_count >= MAX_CLIENTS;
     pthread_mutex_unlock(&client_lock);
+
     if (room_full)
     {
         send_to_cli(CMD_SERVER_MESSAGE, cli, SERVER_MSG_ROOM_IS_FULL, sizeof(SERVER_MSG_ROOM_IS_FULL));
         close(cli->sockfd);
         free(cli);
-        free(buff);
         
         pthread_detach(pthread_self());
         return NULL;
     }
     
+    cli->buff = malloc(sizeof(char) * MSG_LENGTH);
     char name_buff[64] = {};
     uint authorized = 0;
     send_to_cli(CMD_SERVER_MESSAGE, cli, SERVER_MSG_ENTER_NAME, sizeof(SERVER_MSG_ENTER_NAME));
     while (!authorized)
     {
-        int receive = recv(cli->sockfd, buff, 32, 0);
+        int receive = recv(cli->sockfd, cli->buff, 32, 0);
         if (receive > 0)
         {
-            if (strlen(buff) < 5 || strlen(buff) > 32)
+            if (strlen(cli->buff) < 5 || strlen(cli->buff) > 32)
             {
                 send_to_cli(CMD_SERVER_MESSAGE, cli, SERVER_MSG_NAME_ERROR, sizeof(SERVER_MSG_NAME_ERROR));
-                bzero(buff, sizeof(buff));
+                bzero(cli->buff, sizeof(cli));
             }
             else
             {
-                strncpy(cli->name, buff, NAME_LENGTH);
+                strncpy(cli->name, cli->buff, NAME_LENGTH);
                 trim(cli->name, NAME_LENGTH);
                 authorized = 1;
             }
@@ -255,7 +262,6 @@ void *handle(void *arg)
         {
             close(cli->sockfd);
             free(cli);
-            free(buff);
             
             pthread_detach(pthread_self());
             return NULL;
@@ -265,8 +271,10 @@ void *handle(void *arg)
     pthread_mutex_lock(&client_lock);
     cli->id = add_client(cli);
     pthread_mutex_unlock(&client_lock);
+
     broadcast(CMD_USER_CONNECTED, cli->name);
 
+    char msg[512] = {};
     id_to_bytes(msg, cli->id);
     for (int i = 0; i < sizeof(cli->name); i++)
     {
@@ -277,16 +285,17 @@ void *handle(void *arg)
 
     for(;;)
     {
-        bzero(buff, MSG_LENGTH);
-        int receive = recv(cli->sockfd, buff, MSG_LENGTH, 0);
+        bzero_range(msg, MSG_META_OFFSET, strlen(cli->buff));
+        bzero(cli->buff, MSG_LENGTH);
+        int receive = recv(cli->sockfd, cli->buff, MSG_LENGTH, 0);
         if (receive > 0)
         {
-            if (strlen(buff) > 0)
+            if (strlen(cli->buff) > 0)
             {
-                trim(buff, MSG_LENGTH);
-                for (int i = 0; i < sizeof(buff); i++)
+                trim(cli->buff, MSG_LENGTH);
+                for (int i = 0; i < strlen(cli->buff); i++)
                 {
-                    msg[MSG_META_OFFSET + i] = buff[i];
+                    msg[MSG_META_OFFSET + i] = cli->buff[i];
                 }
                 broadcast(CMD_USER_MESSAGE, msg);
             }
@@ -306,14 +315,53 @@ void *handle(void *arg)
 
     close(cli->sockfd);
     free(cli);
-    free(buff);
+    free(cli->buff);
     
     pthread_detach(pthread_self());
 }
 
-int main()
+void graceful_shutdown(int flag)
 {
-    int sockfd, connfd;
+    server_is_shutting_down = 1;
+    for (int i = 0; i < SHUTDOWN_TIME; i++)
+    {
+        char msg[64] = {};
+        sprintf(msg, SERVER_SHUTDOWN_MESSAGE_FMT, SHUTDOWN_TIME-i);
+        broadcast(CMD_SERVER_MESSAGE, msg);
+        sleep(1);
+    }
+
+    pthread_mutex_lock(&client_lock);
+    for (int i = 0; i < MAX_CLIENTS; i++)
+    {
+        if (clients[i] != NULL)
+        {
+            pthread_kill(clients[i]->tid, 0);
+            free(clients[i]->buff);
+            shutdown(clients[i]->sockfd, SHUT_RDWR);
+            close(clients[i]->sockfd);
+            free(clients[i]);
+            client_count--;
+        }
+    }
+    pthread_mutex_unlock(&client_lock);
+    
+    shutdown(sockfd, SHUT_RDWR);
+    close(sockfd);
+    printf("Server is shutted down.\n");
+    exit(flag);
+}
+
+int main(int argc, char *argv[])
+{
+    if (argc < 2)
+    {
+        printf("Usage: ./server <server_port>\n");
+        exit(0);
+    }
+
+    int port = atoi(argv[1]);
+
     struct sockaddr_in server_addr, client_addr;
 
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -323,7 +371,7 @@ int main()
         exit(1);
     }
 
-    prepare_server(&server_addr, 1234);
+    prepare_server(&server_addr, port);
     if (bind(sockfd, (struct sockaddr*)&server_addr, sizeof(server_addr)) != 0)
     {
         printf("Failed to bind socket, exiting...\n");
@@ -335,15 +383,26 @@ int main()
         printf("Failed to listen, exiting...\n");
         exit(1);
     }
+
+    signal(SIGINT, graceful_shutdown);
+
     printf("Waiting for connections...\n");
-  
-    for(;;) 
+
+    int connfd;
+    for(;;)
     {
         socklen_t client_len = sizeof(client_addr);
         connfd = accept(sockfd, (struct sockaddr*)&client_addr, &client_len);
-        client *cli = (client *)malloc(sizeof(client));        
-        cli->addr = client_addr;
-        cli->sockfd = connfd;
-        pthread_create(&cli->tid, NULL, &handle, (void*) cli);                
-    } 
+        if (!server_is_shutting_down)
+        {
+            client *cli = (client *)malloc(sizeof(client));        
+            cli->addr = client_addr;
+            cli->sockfd = connfd;
+            pthread_create(&cli->tid, NULL, &handle, (void*) cli);
+        }
+        else
+        {
+            close(connfd);
+        }
+    }
 }

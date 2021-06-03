@@ -17,6 +17,23 @@ void id_to_bytes(char *str, uint id)
     str[3] = id & 0xFF;
 }
 
+void copy_range(const char *src, char *dst, size_t start, size_t count)
+{
+    int j = 0;
+    for (int i = start; i < start + count; i++)
+    {
+        dst[j++] = src[i];
+    }
+}
+
+void bzero_range(char *src, int start, int len)
+{
+    for (int i = start; i < start+len; i++)
+    {
+        src[i] = '\0';
+    }
+}
+
 void trim(char *str, int len)
 {
     for (int i = 0; i < len; i++)

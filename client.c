@@ -5,6 +5,8 @@
 
 int sockfd;
 
+static volatile int server_is_responding = 0;
+
 void str_overwrite_stdout() {
   printf("%s", "> ");
   fflush(stdout);
@@ -12,35 +14,54 @@ void str_overwrite_stdout() {
 
 void send_handler()
 {
-    char buffer[MSG_LENGTH] = {};
+    char buffer[MSG_LENGTH + 2] = {};
     char name[32] = {};
-    for (;;)
+    for(;;)
     {
-        bzero(buffer, MSG_LENGTH);
+        bzero(buffer, strlen(buffer));
         str_overwrite_stdout();
-        fgets(buffer, MSG_LENGTH, stdin);
+        fgets(buffer, MSG_LENGTH + 2, stdin);
+        if (strlen(buffer) > MSG_LENGTH)
+        {
+            printf("ERROR: Max message length is %d\n", MSG_LENGTH);
+            while ((getchar()) != '\n');
+            continue;
+        }
         send(sockfd, buffer, strlen(buffer), 0);
     }
 }
 
 void receive_handler()
 {
-    char message[MSG_LENGTH] = {};
+    char message[MSG_LENGTH + 50] = {};
     for (;;)
     {
-        int receive = recv(sockfd, message, MSG_LENGTH, 0);
+        int receive = recv(sockfd, message, MSG_LENGTH + 50, 0);
         if (receive > 0) {
             printf("%s\n", message);
             str_overwrite_stdout();
         }
+        else
+        {
+            server_is_responding = 0;
+            break;
+        }
         memset(message, 0, sizeof(message));
+        sleep(1);
     }
+    pthread_detach(pthread_self());
 }
 
-int main()
+int main(int argc, char *argv[])
 {
+    if (argc < 2)
+    {
+        printf("Usage: ./client <server_port>\n");
+        exit(0);
+    }
+
     char *ip = "127.0.0.1";
-    int port = 1234;
+    int port = atoi(argv[1]);
     
     struct sockaddr_in server_addr;
 
@@ -56,11 +77,15 @@ int main()
         return 1;
     }
 
+    server_is_responding = 1;
+
     pthread_t send_msg_thread;
     pthread_create(&send_msg_thread, NULL, (void *) send_handler, NULL);
 
     pthread_t recv_msg_thread;
     pthread_create(&recv_msg_thread, NULL, (void *) receive_handler, NULL);
-    for (;;) {}
+    while (server_is_responding) {}
+    printf("Connection to server is lost.\n");
     close(sockfd);
+    pthread_kill(send_msg_thread, 0);
 }
