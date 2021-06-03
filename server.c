@@ -386,7 +386,6 @@ void graceful_shutdown(int flag)
     
     close(sockfd);
     printf("Server is shutted down.\n");
-    sleep(5);
     exit(flag);
 }
 
