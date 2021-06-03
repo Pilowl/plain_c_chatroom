@@ -6,11 +6,23 @@ int sockfd;
 
 static volatile int server_is_responding = 0;
 
-void str_overwrite_stdout() {
-  printf("%s", "> ");
-  fflush(stdout);
+pthread_mutex_t stdout_lock = PTHREAD_MUTEX_INITIALIZER;
+
+void overwrite_stdout() {
+    printf("%s ", ">");
+    fflush(stdout);
 }
 
+// Thread-safe printf'ing message
+void display_message(char *msg)
+{
+    pthread_mutex_lock(&stdout_lock);
+    printf("%s\n", msg);
+    overwrite_stdout();
+    pthread_mutex_unlock(&stdout_lock);
+}
+
+// Thread for sending messages.
 void send_handler()
 {
     char buffer[MSG_LENGTH + 2] = {};
@@ -18,11 +30,15 @@ void send_handler()
     for(;;)
     {
         bzero(buffer, strlen(buffer));
-        str_overwrite_stdout();
+        overwrite_stdout();
         fgets(buffer, MSG_LENGTH + 2, stdin);
+        // Message length validating is client-sided.
         if (strlen(buffer) > MSG_LENGTH)
         {
-            printf("ERROR: Max message length is %d\n", MSG_LENGTH);
+            pthread_mutex_lock(&stdout_lock);
+            printf("ERROR: Max message length should be %d.\n", MSG_LENGTH);
+            pthread_mutex_unlock(&stdout_lock);
+
             while ((getchar()) != '\n');
             continue;
         }
@@ -30,15 +46,17 @@ void send_handler()
     }
 }
 
+// Basic thread for receiving messages.
 void receive_handler()
 {
+    // Message with length a bit more than message itself for metadata to fit in.
     char message[MSG_LENGTH + 50] = {};
+    // Basic loop with receiving/displaying server messages.
     for (;;)
     {
         int receive = recv(sockfd, message, MSG_LENGTH + 50, 0);
         if (receive > 0) {
-            printf("%s\n", message);
-            str_overwrite_stdout();
+            display_message(message);
         }
         else
         {
@@ -83,8 +101,12 @@ int main(int argc, char *argv[])
 
     pthread_t recv_msg_thread;
     pthread_create(&recv_msg_thread, NULL, (void *) receive_handler, NULL);
+    
+    // Loop while server is responding. Otherwise could exit only through SIGINT.
     while (server_is_responding) {}
+
+    // Canceling client input receiving thread.
+    pthread_cancel(send_msg_thread);
     printf("Connection to server is lost.\n");
     close(sockfd);
-    pthread_cancel(send_msg_thread);
 }

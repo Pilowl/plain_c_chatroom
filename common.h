@@ -15,4 +15,5 @@
 #endif
 
 #define MSG_LENGTH      280
+// Message meta = encoded user id + user name 
 #define MSG_META_OFFSET 37

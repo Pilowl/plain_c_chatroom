@@ -7,7 +7,7 @@
 #define SHUTDOWN_TIME 5
 #define MAX_CLIENTS   64
 
-// Commands
+// Message command types.
 typedef const uint8_t command_t;
 #define CMD_USER_MESSAGE      (command_t)0x01
 #define CMD_SERVER_MESSAGE    (command_t)0x02
@@ -18,16 +18,18 @@ typedef const uint8_t command_t;
 
 const char *LOG_FILE_NAME = "logs.txt";
 
-
+// Server message strings.
 char *SERVER_MSG_ROOM_IS_FULL = "Chat room is full. Please, try again later.";
 char *SERVER_PREFIX           = "<SERVER>";
 char *SERVER_MSG_ENTER_NAME   = "Please, enter your name: ";
 char *SERVER_MSG_NAME_ERROR   = "Wrong name. Your name should have length from 4 to 31.";
 
+// Strings, used in formatted output.
 const char *USER_CONNECTED_MESSAGE_FMT    = "User %s has joined.";
 const char *USER_DISCONNECTED_MESSAGE_FMT = "User %s has been disconnected.";
 const char *SERVER_SHUTDOWN_MESSAGE_FMT   = "Server is (almost) gracefully shutting down in %d";
 
+// Connected client structure definition.
 typedef struct
 {
     uint id;
@@ -44,6 +46,7 @@ void prepare_server(struct sockaddr_in* server_addr, int port) {
     (*server_addr).sin_port = htons(port);
 }
 
+// Time/datetime string formats.
 const char TIME_FMT[] =     "%H:%M:%S";
 const char DATETIME_FMT[] = "%d-%m-%Y %H:%M:%S";
 
@@ -55,14 +58,17 @@ pthread_mutex_t log_std_lock  = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t log_file_lock = PTHREAD_MUTEX_INITIALIZER;
 
 int sockfd;
+// Making socket port reusable.
 void set_socket_reusable(int sockfd)
 {
     int socketoption = 1;
     setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &socketoption, sizeof(socketoption));
 }
 
+// Tracking server shutdown state.
 static volatile int server_is_shutting_down = 0;
 
+// Stdio logs (printf).
 void log_std(const char *msg)
 {  
     time_t timer;
@@ -91,6 +97,7 @@ void log_file(const char *msg)
     pthread_mutex_unlock(&log_file_lock);
 }
 
+// Single client message sending.
 void send_to_cli(command_t cmd, client *cli, char *args, int len)
 {
     switch(cmd)
@@ -114,6 +121,7 @@ void send_to_cli(command_t cmd, client *cli, char *args, int len)
     }
 }
 
+// Message broadcasting to clients.
 void broadcast(command_t cmd, char *args)
 {
     switch (cmd)
@@ -225,10 +233,13 @@ void remove_client(uint id)
     }
 }
 
+
+// Client handling.
 void *handle(void *arg)
 {
     client *cli = (client*) arg;
 
+    // Check if space in chatroom is available.
     pthread_mutex_lock(&client_lock);
     int room_full = client_count >= MAX_CLIENTS;
     pthread_mutex_unlock(&client_lock);
@@ -243,10 +254,15 @@ void *handle(void *arg)
         return NULL;
     }
     
+    // Initializing buffer for client message receiving.
     cli->buff = malloc(sizeof(char) * MSG_LENGTH);
+
+    // Client name buffer.
     char name_buff[64] = {};
     uint authorized = 0;
     send_to_cli(CMD_SERVER_MESSAGE, cli, SERVER_MSG_ENTER_NAME, sizeof(SERVER_MSG_ENTER_NAME));
+
+    // Loop for client name getting.
     while (!authorized)
     {
         int receive = recv(cli->sockfd, cli->buff, 32, 0);
@@ -267,6 +283,7 @@ void *handle(void *arg)
         else
         {
             close(cli->sockfd);
+            free(cli->buff);
             free(cli);
             
             pthread_exit(NULL);
@@ -278,10 +295,14 @@ void *handle(void *arg)
     cli->id = add_client(cli);
     pthread_mutex_unlock(&client_lock);
 
+    // "User connected" message broadcasting to all users.
     broadcast(CMD_USER_CONNECTED, cli->name);
 
+    // Array for storing client message along with space for client metadata (if needed).
     char msg[512] = {};
+    // Converting id to char[] for storing in message metadata.
     id_to_bytes(msg, cli->id);
+    // Filling in client's name in message meta.
     for (int i = 0; i < sizeof(cli->name); i++)
     {
         msg[4+i] = cli->name[i];
@@ -289,6 +310,7 @@ void *handle(void *arg)
             break;
     }
 
+    // Message receiving loop.
     for(;;)
     {
         bzero_range(msg, MSG_META_OFFSET, strlen(cli->buff));
@@ -308,6 +330,7 @@ void *handle(void *arg)
         }
         else
         {
+            // Client disconnected.
             break;
         }
         sleep(1);
@@ -317,6 +340,7 @@ void *handle(void *arg)
     remove_client(cli->id);
     pthread_mutex_unlock(&client_lock);
     
+    // Broadcasting 'User disconnected' message to all users
     broadcast(CMD_USER_DISCONNECTED, cli->name);
 
     close(cli->sockfd);
@@ -326,6 +350,11 @@ void *handle(void *arg)
     pthread_exit(NULL);
 }
 
+/*
+ * Graceful shutdown with freeing (almost) all allocted memory and closing (almost) all sockets.
+ * If user is not in 'clients' array, possible memory leak :(
+ * TODO: fix memory leak possibilities
+*/
 void graceful_shutdown(int flag)
 {
     server_is_shutting_down = 1;
@@ -353,6 +382,7 @@ void graceful_shutdown(int flag)
     
     close(sockfd);
     printf("Server is shutted down.\n");
+    sleep(5);
     exit(flag);
 }
 
