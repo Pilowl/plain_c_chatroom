@@ -7,6 +7,9 @@
 #define SHUTDOWN_TIME 5
 #define MAX_CLIENTS   64
 
+// Message meta = encoded user id + user name 
+#define MSG_META_OFFSET 37
+
 // Message command types.
 typedef const uint8_t command_t;
 #define CMD_USER_MESSAGE      (command_t)0x01

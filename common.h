@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #endif
 
+// Commonly used headers.
 #ifndef __COMMON_H__
 #define __COMMON_H__
 #include <string.h>
@@ -14,6 +15,5 @@
 #include <unistd.h>
 #endif
 
-#define MSG_LENGTH      280
-// Message meta = encoded user id + user name 
-#define MSG_META_OFFSET 37
+// Message length is shared.
+#define MSG_LENGTH 280
