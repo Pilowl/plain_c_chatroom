@@ -271,6 +271,7 @@ void *handle(void *arg)
         int receive = recv(cli->sockfd, cli->buff, 32, 0);
         if (receive > 0)
         {
+            // Server-sided name length validation.
             if (strlen(cli->buff) < 5 || strlen(cli->buff) > 32)
             {
                 send_to_cli(CMD_SERVER_MESSAGE, cli, SERVER_MSG_NAME_ERROR, sizeof(SERVER_MSG_NAME_ERROR));
