@@ -28,13 +28,3 @@ void trim(char *str, int len)
         }
     }
 }
-
-void bzero_range(char *str, size_t start, size_t len)
-{
-    if (sizeof(str) < start+len)
-        return;
-    for (int i = start; i < start+len; i++)
-    {
-        str[i] = '\0';
-    }
-}

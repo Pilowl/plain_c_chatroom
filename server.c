@@ -1,12 +1,30 @@
 #include <time.h>
 
 #include "common.h"
-#include "server.h"
 #include "utils.h"
 
-#define USER_CONNECTED_MESSAGE_FMT    "User %s has joined."
-#define USER_DISCONNECTED_MESSAGE_FMT "User %s has been disconnected."
-#define USER_MESSAGE_PREFIX_FMT       "[%s]"
+#define MAX_CLIENTS 1
+
+// Commands
+typedef const uint8_t command_t;
+#define CMD_USER_MESSAGE      (command_t)0x01
+#define CMD_SERVER_MESSAGE    (command_t)0x02
+#define CMD_USER_CONNECTED    (command_t)0x03
+#define CMD_USER_DISCONNECTED (command_t)0x04
+
+#define NAME_LENGTH 32
+
+const char *LOG_FILE_NAME = "logs.txt";
+
+
+char *SERVER_MSG_ROOM_IS_FULL = "Chat room is full. Please, try again later.";
+char *SERVER_PREFIX           = "<SERVER>";
+char *SERVER_MSG_ENTER_NAME   = "Please, enter your name: ";
+char *SERVER_MSG_NAME_ERROR   = "Wrong name. Your name should have length from 4 to 31.";
+
+const char *USER_CONNECTED_MESSAGE_FMT    = "User %s has joined.";
+const char *USER_DISCONNECTED_MESSAGE_FMT = "User %s has been disconnected.";
+const char *USER_MESSAGE_PREFIX_FMT       = "[%s]";
 
 typedef struct
 {
@@ -32,6 +50,7 @@ int client_count = 0;
 client *clients[MAX_CLIENTS];
 
 pthread_mutex_t client_lock   = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t log_std_lock  = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t log_file_lock = PTHREAD_MUTEX_INITIALIZER;
 
 void copy_range(const char *src, char *dst, size_t start, size_t count)
@@ -44,13 +63,15 @@ void copy_range(const char *src, char *dst, size_t start, size_t count)
 }
 
 void log_std(const char *msg)
-{
+{  
     time_t timer;
     timer = time(NULL);
     char datetime[32];
     struct tm *tm_info = localtime(&timer);
     strftime(datetime, sizeof(datetime), DATETIME_FMT, tm_info);
+    pthread_mutex_lock(&log_std_lock);
     printf("[%s] <LOG> %s\n", datetime, msg);
+    pthread_mutex_unlock(&log_std_lock);
 }
 
 void log_file(const char *msg)
@@ -61,11 +82,12 @@ void log_file(const char *msg)
     struct tm *tm_info = localtime(&timer);
     strftime(datetime, sizeof(datetime), DATETIME_FMT, tm_info);
 
+    pthread_mutex_lock(&log_file_lock);
     FILE *fp;
-
     fp = fopen(LOG_FILE_NAME, "a");
     fprintf(fp, "[%s] %s\n", datetime, msg);
     fclose(fp);
+    pthread_mutex_unlock(&log_file_lock);
 }
 
 void send_to_cli(command_t cmd, client *cli, char *args, int len)
@@ -87,7 +109,7 @@ void send_to_cli(command_t cmd, client *cli, char *args, int len)
             write(cli->sockfd, args, len);
             break;
         default:
-            printf("Error sending message. Unknown command code: %d\n", cmd);
+            log_std("Error sending message. Unknown command code: %d");
     }
 }
 
@@ -194,6 +216,20 @@ void *handle(void *arg)
     char *buff = malloc(sizeof(char)*MSG_LENGTH);
     char msg[512] = {};
     client *cli = (client*) arg;
+
+    pthread_mutex_lock(&client_lock);
+    int room_full = client_count >= MAX_CLIENTS;
+    pthread_mutex_unlock(&client_lock);
+    if (room_full)
+    {
+        send_to_cli(CMD_SERVER_MESSAGE, cli, SERVER_MSG_ROOM_IS_FULL, sizeof(SERVER_MSG_ROOM_IS_FULL));
+        close(cli->sockfd);
+        free(cli);
+        free(buff);
+        
+        pthread_detach(pthread_self());
+        return NULL;
+    }
     
     char name_buff[64] = {};
     uint authorized = 0;
@@ -264,7 +300,6 @@ void *handle(void *arg)
 
     pthread_mutex_lock(&client_lock);
     remove_client(cli->id);
-    client_count--;
     pthread_mutex_unlock(&client_lock);
     
     broadcast(CMD_USER_DISCONNECTED, cli->name);
