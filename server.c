@@ -162,10 +162,10 @@ void broadcast(command_t cmd, char *args)
 
             break;
         case CMD_USER_CONNECTED:
-            pthread_mutex_lock(&client_lock);
             len = sprintf(msg, USER_CONNECTED_MESSAGE_FMT, args);
             log_std(msg);
             log_file(msg);
+            pthread_mutex_lock(&client_lock);
             for (int i = 0; i < MAX_CLIENTS; i++)
             {
                 if (clients[i] != NULL)
@@ -177,10 +177,10 @@ void broadcast(command_t cmd, char *args)
 
             break;
         case CMD_USER_DISCONNECTED:
-            pthread_mutex_lock(&client_lock);
             len = sprintf(msg, USER_DISCONNECTED_MESSAGE_FMT, args);
             log_std(msg);
             log_file(msg);
+            pthread_mutex_lock(&client_lock);
             for (int i = 0; i < MAX_CLIENTS; i++)
             {
                 if (clients[i] != NULL)
