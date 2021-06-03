@@ -1,4 +1,3 @@
-#include <signal.h>
 #include <arpa/inet.h>
 
 #include "common.h"
@@ -87,5 +86,5 @@ int main(int argc, char *argv[])
     while (server_is_responding) {}
     printf("Connection to server is lost.\n");
     close(sockfd);
-    pthread_kill(send_msg_thread, 0);
+    pthread_cancel(send_msg_thread);
 }
