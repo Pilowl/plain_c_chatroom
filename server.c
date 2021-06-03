@@ -55,6 +55,12 @@ pthread_mutex_t log_std_lock  = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t log_file_lock = PTHREAD_MUTEX_INITIALIZER;
 
 int sockfd;
+void set_socket_reusable(int sockfd)
+{
+    int socketoption = 1;
+    setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &socketoption, sizeof(socketoption));
+}
+
 static volatile int server_is_shutting_down = 0;
 
 void log_std(const char *msg)
@@ -233,7 +239,7 @@ void *handle(void *arg)
         close(cli->sockfd);
         free(cli);
         
-        pthread_detach(pthread_self());
+        pthread_exit(NULL);
         return NULL;
     }
     
@@ -263,7 +269,7 @@ void *handle(void *arg)
             close(cli->sockfd);
             free(cli);
             
-            pthread_detach(pthread_self());
+            pthread_exit(NULL);
             return NULL;
         }
     }
@@ -317,7 +323,7 @@ void *handle(void *arg)
     free(cli);
     free(cli->buff);
     
-    pthread_detach(pthread_self());
+    pthread_exit(NULL);
 }
 
 void graceful_shutdown(int flag)
@@ -336,17 +342,15 @@ void graceful_shutdown(int flag)
     {
         if (clients[i] != NULL)
         {
-            pthread_kill(clients[i]->tid, 0);
-            free(clients[i]->buff);
-            shutdown(clients[i]->sockfd, SHUT_RDWR);
+            pthread_cancel(clients[i]->tid);
             close(clients[i]->sockfd);
+            free(clients[i]->buff);
             free(clients[i]);
             client_count--;
         }
     }
     pthread_mutex_unlock(&client_lock);
     
-    shutdown(sockfd, SHUT_RDWR);
     close(sockfd);
     printf("Server is shutted down.\n");
     exit(flag);
@@ -370,6 +374,7 @@ int main(int argc, char *argv[])
         printf("Failed to create socket, exiting...\n");
         exit(1);
     }
+    set_socket_reusable(sockfd);
 
     prepare_server(&server_addr, port);
     if (bind(sockfd, (struct sockaddr*)&server_addr, sizeof(server_addr)) != 0)
