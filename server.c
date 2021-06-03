@@ -138,7 +138,7 @@ void broadcast(command_t cmd, char *args)
             
             char id_bytes[4] = {};
             copy_range(args, id_bytes, 0, 4);
-            uint sender_id = id_from_bytes(id_bytes);
+            uint sender_id = uint_from_bytes(id_bytes);
             
             char name[32] = {};
             copy_range(args, name, 4, 32);
@@ -305,7 +305,7 @@ void *handle(void *arg)
     // Array for storing client message along with space for client metadata (if needed).
     char msg[512] = {};
     // Converting id to char[] for storing in message metadata.
-    id_to_bytes(msg, cli->id);
+    uint_to_bytes(msg, cli->id);
     // Filling in client's name in message meta.
     for (int i = 0; i < sizeof(cli->name); i++)
     {

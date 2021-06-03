@@ -5,13 +5,13 @@
 #endif
 
 // Decoding int in encoded 4 bytes (chars).
-uint id_from_bytes(char *args)
+uint uint_from_bytes(char *args)
 {
     return (args[0] << 24) | (args[1] << 16) | (args[2] << 8) | args[3];
 }
 
 // Encoding int in 4 bytes (chars) in BigEndian way.
-void id_to_bytes(char *str, uint id)
+void uint_to_bytes(char *str, uint id)
 {
     str[0] = (id >> 24) & 0xFF;
     str[1] = (id >> 16) & 0xFF;
