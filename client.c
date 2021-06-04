@@ -66,7 +66,7 @@ void receive_handler()
         memset(message, 0, sizeof(message));
         sleep(1);
     }
-    pthread_detach(pthread_self());
+    pthread_exit(NULL);
 }
 
 int main(int argc, char *argv[])
