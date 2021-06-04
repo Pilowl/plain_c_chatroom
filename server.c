@@ -22,15 +22,15 @@ typedef const uint8_t command_t;
 const char *LOG_FILE_NAME = "logs.txt";
 
 // Server message strings.
-char *SERVER_MSG_ROOM_IS_FULL = "Chat room is full. Please, try again later.";
-char *SERVER_PREFIX           = "<SERVER>";
-char *SERVER_MSG_ENTER_NAME   = "Please, enter your name: ";
-char *SERVER_MSG_NAME_ERROR   = "Wrong name. Your name should have length from 4 to 31.";
+char SERVER_MSG_ROOM_IS_FULL[] = "Chat room is full. Please, try again later>";
+char SERVER_MSG_ENTER_NAME[]   = "Please, enter your name>: ";
+char SERVER_MSG_NAME_ERROR[]   = "Wrong name. Your name should have length from 4 to 31>";
 
 // Strings, used in formatted output.
-const char *USER_CONNECTED_MESSAGE_FMT    = "User %s has joined.";
-const char *USER_DISCONNECTED_MESSAGE_FMT = "User %s has been disconnected.";
-const char *SERVER_SHUTDOWN_MESSAGE_FMT   = "Server is (almost) gracefully shutting down in %d";
+const char *USER_CONNECTED_MESSAGE_FMT    = "<User %s has joined>";
+const char *USER_DISCONNECTED_MESSAGE_FMT = "<User %s has been disconnected>";
+const char *SERVER_PREFIX_FMT             = "<SERVER> %s";
+const char *SERVER_SHUTDOWN_MESSAGE_FMT   = "<Server is (almost) gracefully shutting down in %d>";
 
 // Connected client structure definition.
 typedef struct
@@ -100,30 +100,21 @@ void log_file(const char *msg)
     pthread_mutex_unlock(&log_file_lock);
 }
 
-// Single client message sending.
-void send_to_cli(command_t cmd, client *cli, char *args, int len)
+// Single client write-to-socket wrapper.
+void send_to_cli(client *cli, char *args, int len)
 {
-    switch(cmd)
-    {
-        case CMD_USER_MESSAGE:
-            write(cli->sockfd, args, len);
-            break;
-        case CMD_SERVER_MESSAGE: ;
-            char fmt_msg[512] = {};
-            len = sprintf(fmt_msg, "%s %s", SERVER_PREFIX, args);
-            write(cli->sockfd, fmt_msg, len);
-            break;
-        default:
-            log_std("Error sending message. Unknown command code: %d");
-    }
+    write(cli->sockfd, args, len);
 }
 
 // Message broadcasting to clients.
 void broadcast(command_t cmd, char *args)
 {
+    char msg[512];
+
     switch (cmd)
     {
         case CMD_USER_MESSAGE: ;
+            // Building message char array with meta (time + name + message itself).
             time_t timer;
             timer = time(NULL);
             char time[20];
@@ -140,16 +131,16 @@ void broadcast(command_t cmd, char *args)
             char text[280] = {};
             copy_range(args, text, 37, MSG_LENGTH);
 
-            char msg[512];
-            int len = sprintf(msg, "[%s] <%s (id: %u)> %s", time, name, sender_id, text);
+            int len = sprintf(msg, "[%s] <%s [id: %u]> %s", time, name, sender_id, text);
             log_std(msg);
 
+            // Broadcasting loop.
             pthread_mutex_lock(&client_lock);
             for (int i = 0; i < MAX_CLIENTS; i++)
             {
                 if (clients[i] != NULL && clients[i]->id != sender_id)
                 {
-                    send_to_cli(CMD_USER_MESSAGE, clients[i], msg, len);
+                    send_to_cli(clients[i], msg, len);
                 }
             }
             pthread_mutex_unlock(&client_lock);
@@ -157,14 +148,16 @@ void broadcast(command_t cmd, char *args)
             break;
         case CMD_USER_CONNECTED:
             len = sprintf(msg, USER_CONNECTED_MESSAGE_FMT, args);
+
             log_std(msg);
             log_file(msg);
+
             pthread_mutex_lock(&client_lock);
             for (int i = 0; i < MAX_CLIENTS; i++)
             {
                 if (clients[i] != NULL)
                 {
-                    send_to_cli(CMD_SERVER_MESSAGE, clients[i], msg, len);
+                    send_to_cli(clients[i], msg, len);
                 }
             }
             pthread_mutex_unlock(&client_lock);
@@ -172,34 +165,40 @@ void broadcast(command_t cmd, char *args)
             break;
         case CMD_USER_DISCONNECTED:
             len = sprintf(msg, USER_DISCONNECTED_MESSAGE_FMT, args);
+
             log_std(msg);
             log_file(msg);
+
             pthread_mutex_lock(&client_lock);
             for (int i = 0; i < MAX_CLIENTS; i++)
             {
                 if (clients[i] != NULL)
                 {
-                    send_to_cli(CMD_SERVER_MESSAGE, clients[i], msg, len);
+                    send_to_cli(clients[i], msg, len);
                 }
             }
             pthread_mutex_unlock(&client_lock);
 
             break;
         case CMD_SERVER_MESSAGE:
+            len = sprintf(msg, SERVER_PREFIX_FMT, args);
+            log_std(msg);
+
             pthread_mutex_lock(&client_lock);
-            log_std(args);
             for (int i = 0; i < MAX_CLIENTS; i++)
             {
                 if (clients[i] != NULL)
                 {
-                    send_to_cli(CMD_SERVER_MESSAGE, clients[i], args, strlen(args));
+                    send_to_cli(clients[i], msg, len);
                 }
             }
             pthread_mutex_unlock(&client_lock);
 
             break;
-        default:
-            break;
+        default: ;
+            char error_msg[128] = {};
+            len = sprintf(error_msg, "Error sending message. Unknown command code: %d", cmd);
+            log_std(error_msg);
     }
 }
 
@@ -243,7 +242,7 @@ void *handle(void *arg)
 
     if (room_full)
     {
-        send_to_cli(CMD_SERVER_MESSAGE, cli, SERVER_MSG_ROOM_IS_FULL, sizeof(SERVER_MSG_ROOM_IS_FULL));
+        send_to_cli(cli, SERVER_MSG_ROOM_IS_FULL, sizeof(SERVER_MSG_ROOM_IS_FULL));
         close(cli->sockfd);
         free(cli);
         
@@ -257,7 +256,7 @@ void *handle(void *arg)
     // Client name buffer.
     char name_buff[64] = {};
     uint authorized = 0;
-    send_to_cli(CMD_SERVER_MESSAGE, cli, SERVER_MSG_ENTER_NAME, sizeof(SERVER_MSG_ENTER_NAME));
+    send_to_cli(cli, SERVER_MSG_ENTER_NAME, sizeof(SERVER_MSG_ENTER_NAME));
 
     // Loop for client name getting.
     while (!authorized)
@@ -268,7 +267,7 @@ void *handle(void *arg)
             // Server-sided name length validation.
             if (strlen(cli->buff) < 5 || strlen(cli->buff) > 32)
             {
-                send_to_cli(CMD_SERVER_MESSAGE, cli, SERVER_MSG_NAME_ERROR, sizeof(SERVER_MSG_NAME_ERROR));
+                send_to_cli(cli, SERVER_MSG_NAME_ERROR, sizeof(SERVER_MSG_NAME_ERROR));
                 bzero(cli->buff, sizeof(cli));
             }
             else
