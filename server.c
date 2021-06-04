@@ -113,12 +113,6 @@ void send_to_cli(command_t cmd, client *cli, char *args, int len)
             len = sprintf(fmt_msg, "%s %s", SERVER_PREFIX, args);
             write(cli->sockfd, fmt_msg, len);
             break;
-        case CMD_USER_CONNECTED:
-            write(cli->sockfd, args, len);
-            break;
-        case CMD_USER_DISCONNECTED:
-            write(cli->sockfd, args, len);
-            break;
         default:
             log_std("Error sending message. Unknown command code: %d");
     }
