@@ -388,7 +388,7 @@ int main(int argc, char *argv[])
     if (argc < 2)
     {
         printf("Usage: ./server <server_port>\n");
-        exit(0);
+        exit(EINVAL);
     }
 
     int port = atoi(argv[1]);

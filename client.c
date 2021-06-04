@@ -74,7 +74,7 @@ int main(int argc, char *argv[])
     if (argc < 2)
     {
         printf("Usage: ./client <server_port>\n");
-        exit(0);
+        exit(EINVAL);
     }
 
     char *ip = "127.0.0.1";

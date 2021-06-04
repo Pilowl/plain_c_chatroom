@@ -13,6 +13,7 @@
 #include <sys/types.h>
 #include <pthread.h>
 #include <unistd.h>
+#include <errno.h>
 #endif
 
 // Message length is shared.
