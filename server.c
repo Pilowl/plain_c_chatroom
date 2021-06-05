@@ -50,7 +50,7 @@ void prepare_server(struct sockaddr_in* server_addr, int port) {
 }
 
 // Time/datetime string formats.
-const char TIME_FMT[] =     "%H:%M:%S";
+const char TIME_FMT[]     = "%H:%M:%S";
 const char DATETIME_FMT[] = "%d-%m-%Y %H:%M:%S";
 
 int client_count = 0;
