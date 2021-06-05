@@ -39,17 +39,24 @@ void send_handler()
     {
         bzero(buffer, strlen(buffer));
         overwrite_stdout();
+
+        // Getting user input from stdin.
         fgets(buffer, MSG_LENGTH + 2, stdin);
+
         // Message length validating is client-sided.
         if (strlen(buffer) > MSG_LENGTH)
         {
             pthread_mutex_lock(&stdout_lock);
             printf("ERROR: Max message length should be %d.\n", MSG_LENGTH);
             pthread_mutex_unlock(&stdout_lock);
-
+            
+            // Emptying stdin
             while ((getchar()) != '\n');
             continue;
         }
+        else if (buffer[0] == '\n')
+            continue;
+
         send(sockfd, buffer, strlen(buffer), 0);
     }
 }
@@ -107,6 +114,7 @@ int main(int argc, char *argv[])
     pthread_t recv_msg_thread;
     pthread_create(&recv_msg_thread, NULL, (void *) receive_handler, NULL);
     
+    printf("%s\n", "Ctrl+C to quit chat.");
     // Loop while server is responding. Otherwise could exit only through SIGINT.
     while (server_is_responding) {}
 
