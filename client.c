@@ -2,7 +2,15 @@
 
 #include "common.h"
 
+const char DEFAULT_SERVER_IP[] = "127.0.0.1";
+
 int sockfd;
+void prepare_conn(struct sockaddr_in *server_addr, const char *ip, int port)
+{
+    (*server_addr).sin_family = AF_INET;
+    (*server_addr).sin_addr.s_addr = inet_addr(ip);
+    (*server_addr).sin_port = htons(port);
+}
 
 static volatile int server_is_responding = 0;
 
@@ -76,16 +84,13 @@ int main(int argc, char *argv[])
         printf("Usage: ./client <server_port>\n");
         exit(EINVAL);
     }
-
-    char *ip = "127.0.0.1";
     int port = atoi(argv[1]);
     
     struct sockaddr_in server_addr;
+    prepare_conn(&server_addr, DEFAULT_SERVER_IP, port);
+
 
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_addr.s_addr = inet_addr(ip);
-    server_addr.sin_port = htons(port);
 
     int err = connect(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr));
     if (err != 0)
