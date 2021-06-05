@@ -330,7 +330,6 @@ void *handle(void *arg)
             // Client disconnected.
             break;
         }
-        sleep(1);
     }
 
     pthread_mutex_lock(&client_lock);
