@@ -234,21 +234,6 @@ void remove_client(uint id)
 void *handle(void *arg)
 {
     client *cli = (client*) arg;
-
-    // Check if space in chatroom is available.
-    pthread_mutex_lock(&client_lock);
-    int room_full = client_count >= MAX_CLIENTS;
-    pthread_mutex_unlock(&client_lock);
-
-    if (room_full)
-    {
-        send_to_cli(cli, SERVER_MSG_ROOM_IS_FULL, sizeof(SERVER_MSG_ROOM_IS_FULL));
-        close(cli->sockfd);
-        free(cli);
-        
-        pthread_exit(NULL);
-        return NULL;
-    }
     
     // Initializing buffer for client message receiving.
     cli->buff = malloc(sizeof(char) * MSG_LENGTH);
@@ -289,6 +274,19 @@ void *handle(void *arg)
     }
 
     pthread_mutex_lock(&client_lock);
+    // Check if space in chatroom is available.
+    int room_full = client_count >= MAX_CLIENTS;
+    if (room_full)
+    {
+        send_to_cli(cli, SERVER_MSG_ROOM_IS_FULL, sizeof(SERVER_MSG_ROOM_IS_FULL));
+        close(cli->sockfd);
+        free(cli->buff);
+        free(cli);
+        
+        pthread_exit(NULL);
+        return NULL;
+    }
+
     cli->id = add_client(cli);
     pthread_mutex_unlock(&client_lock);
 
